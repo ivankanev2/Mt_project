@@ -1,0 +1,2 @@
+﻿model,family,aligned_pairs,BLEU,chrF,system_out,compare_csv,disagreements_csv
+Helsinki-NLP/opus-mt-en-bg,marian,2895,43.84,68.53,results_dp/system_helsinki_nlp_opus_mt_en_bg.out,results_dp/compare_anchored_helsinki_nlp_opus_mt_en_bg.csv,results_dp/disagreements_helsinki_nlp_opus_mt_en_bg.csv
