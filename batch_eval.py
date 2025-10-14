@@ -409,7 +409,7 @@ def detect_family(model_id):
         return "nllb"
     if "helsinki-nlp/opus-mt-" in mid or "opus-mt-" in mid or "marian" in mid:
         return "marian"
-    if any(x in mid for x in ["qwen", "llama", "mistral", "mixtral", "gemma", "phi-3", "xglm"]):
+    if any(x in mid for x in ["bggpt", "qwen", "llama", "mistral", "mixtral", "gemma", "phi-3", "xglm"]):
         return "causal_llm"
 
     return "auto"  # try M2M -> Marian -> NLLB in that order
@@ -516,6 +516,21 @@ def translate_batch(model_id, fam, tok, model, lines, device=None, batch_size=16
     elif fam == "causal_llm":
         # Build a strict prompt so the model outputs ONLY BG text
         def build_prompt(text: str) -> str:
+            is_bggpt = "bggpt" in model_id.lower()
+            if is_bggpt:
+                # Gemma2/BgGPT: no system role; user-only instruction
+                if hasattr(tok, "apply_chat_template"):
+                    msgs = [
+                        {"role": "user",
+                        "content": f"Translate to Bulgarian. Output ONLY the translation.\n{text}"}
+                    ]
+                    try:
+                        return tok.apply_chat_template(
+                            msgs, tokenize=False, add_generation_prompt=True
+                        )
+                    except Exception:
+                        pass
+                return f"Translate to Bulgarian. Output ONLY the translation.\n{text}"
             if hasattr(tok, "apply_chat_template"):
                 messages = [
                     {"role": "system", "content": "You are a professional technical translator. Translate English to Bulgarian. Output ONLY the translation."},
