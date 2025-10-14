@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+results_*/
+*.out
+*.xlsx
+debug/

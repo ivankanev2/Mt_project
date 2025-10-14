@@ -1,0 +1,14 @@
+transformers
+accelerate
+peft
+trl
+bitsandbytes
+sentencepiece
+datasets
+sacrebleu
+python-docx
+pypdf
+pandas
+openpyxl
+lxml
+sentence-transformers
