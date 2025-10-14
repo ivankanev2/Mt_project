@@ -17,3 +17,21 @@ adapters/*/checkpoint-*/
 adapters/*/optimizer.pt
 adapters/*/trainer_state.json
 adapters/*/training_args.bin
+
+# training artifacts
+runs/
+adapters/**/*.safetensors
+adapters/**/optimizer.pt
+adapters/**/scheduler.pt
+adapters/**/rng_state.pth
+adapters/**/trainer_state.json
+adapters/**/checkpoint-*/
+*.pt
+*.bin
+
+# cache
+.huggingface/
+.hf_cache/
+.cache/
+.cache/*
+/l/users/*/.cache/

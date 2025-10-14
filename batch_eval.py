@@ -414,7 +414,7 @@ def detect_family(model_id):
 
     return "auto"  # try M2M -> Marian -> NLLB in that order
 
-def translator_for(model_id, device=None):
+def translator_for(model_id, device=None, lora_adapter=None):
     from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
     fam = detect_family(model_id)
     if fam == "m2m":
@@ -458,6 +458,11 @@ def translator_for(model_id, device=None):
             else:
                 device = torch.device("cpu")
             model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto").to(device)
+
+        if lora_adapter:
+            from peft import PeftModel
+            model = PeftModel.from_pretrained(model, lora_adapter)
+            model = model.to(device)
 
         return ("causal_llm", tok, model, device)
 
@@ -687,6 +692,8 @@ def main():
     ap.add_argument("--thr", type=float, default=0.55)
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--export_disagreements", action="store_true")
+    ap.add_argument("--lora_adapter", default="",
+                help="Path to a PEFT LoRA adapter to load onto causal LLMs (e.g. adapters/qwen2_5_05b_bg_lora_test)")
     ap.add_argument("--no_glossary", action="store_true",
                 help="Do NOT enforce glossary replacements")
     ap.add_argument("--no_bg_normalize", action="store_true",
@@ -783,7 +790,7 @@ def main():
     summary_rows = []
     for model_id in [m.strip() for m in args.models.split(",") if m.strip()]:
         print(f"\n=== Evaluating model: {model_id} ===")
-        fam, tok, model, device = translator_for(model_id, device=None)
+        fam, tok, model, device = translator_for(model_id, device=None, lora_adapter=args.lora_adapter)
         if fam == "skip":
             continue
 
