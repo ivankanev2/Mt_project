@@ -5,8 +5,13 @@ from huggingface_hub.utils import HfHubHTTPError
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, AutoModelForCausalLM
 from lxml import etree
 import torch
+from tqdm import tqdm
 
 
+# for progress bars
+def pbar(it, **kwargs):
+    """Show a tqdm bar only if the session looks interactive."""
+    return tqdm(it, **kwargs) if sys.stderr.isatty() else it
 
 # ---------------- Common helpers ----------------
 
@@ -361,7 +366,7 @@ def windowed_embed_align(src_chunk, ref_chunk, win=6, thr=0.5, model_name="sente
     e_ref = st.encode(ref, convert_to_numpy=True, normalize_embeddings=True)
     aligned = []
     j = 0
-    for i, v in enumerate(e_src):
+    for i, v in enumerate(pbar(e_src, total=len(e_src), desc="DP align", unit="lines")):
         start = j
         end = min(len(e_ref), j + win)
         if start >= end:
@@ -474,12 +479,15 @@ def translate_batch(model_id, fam, tok, model, lines, device=None, batch_size=16
         # M2M-100: use forced BOS for bg + declare source language
         tok.src_lang = "en"
         bos = tok.get_lang_id("bg")
+        pbar = tqdm(total=len(lines), desc=f"Translating ({model_id})", unit="line", dynamic_ncols=True, leave=False)
         for i in range(0, len(lines), batch_size):
             batch = lines[i:i+batch_size]
             enc = tok(batch, return_tensors="pt", padding=True, truncation=True).to(device)
             gen = model.generate(**enc, forced_bos_token_id=bos)
             dec = tok.batch_decode(gen, skip_special_tokens=True)
             out.extend([d.strip() for d in dec])
+            pbar.update(len(batch))
+        pbar.close()
 
     elif fam == "nllb":
         # NLLB-200: FLORES codes eng_Latn -> bul_Cyrl
@@ -495,12 +503,15 @@ def translate_batch(model_id, fam, tok, model, lines, device=None, batch_size=16
         if hasattr(tok, "src_lang"):
             tok.src_lang = "eng_Latn"
 
+        pbar = tqdm(total=len(lines), desc=f"Translating ({model_id})", unit="line", dynamic_ncols=True, leave=False)
         for i in range(0, len(lines), batch_size):
             batch = lines[i:i+batch_size]
             enc = tok(batch, return_tensors="pt", padding=True, truncation=True).to(device)
             gen = model.generate(**enc, forced_bos_token_id=bos)
             dec = tok.batch_decode(gen, skip_special_tokens=True)
             out.extend([d.strip() for d in dec])
+            pbar.update(len(batch))
+        pbar.close()
 
     elif fam == "causal_llm":
         # Build a strict prompt so the model outputs ONLY BG text
@@ -524,6 +535,7 @@ def translate_batch(model_id, fam, tok, model, lines, device=None, batch_size=16
             tok.pad_token_id = tok.eos_token_id
 
         out = []
+        pbar = tqdm(total=len(lines), desc=f"Translating ({model_id})", unit="line", dynamic_ncols=True, leave=False)
         for i in range(0, len(lines), batch_size):
             prompts = [build_prompt(s) for s in lines[i:i+batch_size]]
 
@@ -550,7 +562,9 @@ def translate_batch(model_id, fam, tok, model, lines, device=None, batch_size=16
                 # Defensive: remove any leftover role tag text
                 text = re.sub(r"^(?:assistant\s*:?\s*)", "", text, flags=re.I).strip('“”"')
                 out.append(text)
+            pbar.update(len(prompts))
 
+        pbar.close()
         return out
 
 
@@ -559,6 +573,7 @@ def translate_batch(model_id, fam, tok, model, lines, device=None, batch_size=16
         # Marian / OPUS-MT (and most other seq2seq models)
         # Many OPUS models expect the target tag >>bul<< at the start.
         needs_tag = "helsinki-nlp/opus-mt-" in model_id.lower()
+        pbar = tqdm(total=len(lines), desc=f"Translating ({model_id})", unit="line", dynamic_ncols=True, leave=False)
         for i in range(0, len(lines), batch_size):
             batch = lines[i:i+batch_size]
             if needs_tag:
@@ -567,6 +582,8 @@ def translate_batch(model_id, fam, tok, model, lines, device=None, batch_size=16
             gen = model.generate(**enc)
             dec = tok.batch_decode(gen, skip_special_tokens=True)
             out.extend([d.strip() for d in dec])
+            pbar.update(len(batch))
+        pbar.close()
 
     return out
 
@@ -601,7 +618,8 @@ def dp_align(sys_lines, ref_lines, sim_thr=0.50, model_name="sentence-transforme
         dp[0,j] = dp[0,j-1] + gap
         ptr[0,j] = 3
 
-    for i in range(1, n+1):
+
+    for i in tqdm(range(1, n+1), desc="DP fill (rows)", unit="row", dynamic_ncols=True, leave=False):
         Si = S[i-1]
         for j in range(1, m+1):
             match = dp[i-1,j-1] + Si[j-1]
@@ -683,10 +701,10 @@ def main():
     dbg_en_raw = dbg_dir / "debug" / "dbg_en_raw.txt"
     dbg_bg_raw = dbg_dir / "debug" / "dbg_bg_raw.txt"
     with open(dbg_en_raw, "w", encoding="utf-8-sig") as f:
-        for i, s in enumerate(eng_raw):
+        for i, s in enumerate(tqdm(eng_raw, desc="Dump EN (raw)", unit="line", dynamic_ncols=True, leave=False)):
             f.write(f"{i:05d} | {s}\n")
     with open(dbg_bg_raw, "w", encoding="utf-8-sig") as f:
-        for i, s in enumerate(bul_raw):
+        for i, s in enumerate(tqdm(bul_raw, desc="Dump BG (raw)", unit="line", dynamic_ncols=True, leave=False)):
             f.write(f"{i:05d} | {s}\n")
 
     eng = normalize_lines(drop_furniture(eng_raw))
@@ -702,10 +720,10 @@ def main():
     dbg_en_clean = dbg_dir / "debug" / "dbg_en_clean.txt"
     dbg_bg_clean = dbg_dir / "debug" / "dbg_bg_clean.txt"
     with open(dbg_en_clean, "w", encoding="utf-8-sig") as f:
-        for i, s in enumerate(eng):
+        for i, s in enumerate(tqdm(eng, desc="Dump EN (clean)", unit="line", dynamic_ncols=True, leave=False)):
             f.write(f"{i:05d} | {s}\n")
     with open(dbg_bg_clean, "w", encoding="utf-8-sig") as f:
-        for i, s in enumerate(bul):
+        for i, s in enumerate(tqdm(bul, desc="Dump BG (clean)", unit="line", dynamic_ncols=True, leave=False)):
             f.write(f"{i:05d} | {s}\n")
 
     print(f"Cleaned lines: EN={len(eng)}  BG_REF={len(bul)}")
@@ -781,7 +799,7 @@ def main():
         pairs = dp_align(sys_bg, ref_bg, sim_thr=args.thr)
 
         rows = []
-        for i, j in pairs:
+        for i, j in tqdm(pairs, desc="Materialize DP rows", unit="row", dynamic_ncols=True, leave=False):
             en_txt  = src_en[i]                  # NOTE: src_en, not eng
             sys_txt = sys_bg[i]
             ref_txt = ref_bg[j] if j is not None else ""   # gap on BG side if no good match
