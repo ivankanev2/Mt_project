@@ -1,0 +1,57 @@
+#!/bin/bash
+#SBATCH -A faculty
+#SBATCH -p long
+#SBATCH --qos=gpu-12
+#SBATCH --gres=gpu:a100-sxm4-40gb:1         # << 1 GPU
+#SBATCH --cpus-per-task=16
+#SBATCH --time=12:00:00
+#SBATCH --mem=120G
+#SBATCH -J qwen2_5_7b_lora_1gpu
+#SBATCH -o runs/%x_%j/logs/train.out
+#SBATCH -e runs/%x_%j/logs/train.err
+
+set -euo pipefail
+echo "Host: $(hostname)  GPUs:$CUDA_VISIBLE_DEVICES  Date: $(date)"
+
+# Caches
+export HF_HOME=$HOME/hf_cache
+export TRANSFORMERS_CACHE=$HF_HOME
+export HUGGINGFACE_HUB_CACHE=$HF_HOME
+export WANDB_MODE=offline
+
+# Run directory
+RUN_DIR="runs/${SLURM_JOB_NAME}_${SLURM_JOB_ID}"
+mkdir -p "$RUN_DIR/logs" "$RUN_DIR/checkpoints" "$RUN_DIR/eval"
+
+# Activate venv
+source ~/.bashrc 2>/dev/null || true
+source "$HOME/mt_project/.venv/bin/activate"
+
+# Single-GPU training (same script/flags you used on your Mac)
+# On 4 GPUs you used effective batch ~= 4 GPUs * grad_accum 8 * micro-batch 1.
+# To roughly match the effective batch on 1 GPU, set grad_accum to 32.
+python -u train/train_lora.py \
+  --model_id Qwen/Qwen2.5-7B-Instruct \
+  --train_file data/train.jsonl \
+  --eval_file  data/dev.jsonl \
+  --output_dir "$RUN_DIR/checkpoints" \
+  --epochs 3 \
+  --lr 5e-5 \
+  --batch_size 1 \
+  --grad_accum 32 \
+  --max_seq_len 1024 \
+  --gradient_checkpointing True \
+  --bf16 True \
+  --save_total_limit 2 \
+  --save_strategy epoch \
+  --eval_strategy epoch \
+  --log_interval 20
+
+# (Optional) quick eval after training
+python -u batch_eval.py \
+  --src data/english_ref_1.docx \
+  --ref data/bulgarian_ref_1.docx \
+  --models "$RUN_DIR/checkpoints" \
+  --outdir "$RUN_DIR/eval" \
+  --no_glossary --no_bg_normalize \
+  --thr 0.55 --batch 16 --export_disagreements
