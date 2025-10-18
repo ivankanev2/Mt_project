@@ -35,3 +35,10 @@ adapters/**/checkpoint-*/
 .cache/
 .cache/*
 /l/users/*/.cache/
+
+echo "data/*.jsonl" >> .gitignore
+echo "runs/" >> .gitignore
+echo "adapters/" >> .gitignore
+echo "hf_cache/" >> .gitignore
+echo "__pycache__/" >> .gitignore
+echo "*.DS_Store" >> .gitignore
