@@ -12,7 +12,7 @@ from tqdm import tqdm
 def pbar(it, **kwargs):
     """Show a tqdm bar only if the session looks interactive."""
     return tqdm(it, **kwargs) if sys.stderr.isatty() else it
-
+    
 # ---------------- Common helpers ----------------
 
 def save_table_csv_and_xlsx(path_csv, columns, rows):
@@ -525,18 +525,11 @@ def translate_batch(model_id, fam, tok, model, lines, device=None, batch_size=16
             if is_bggpt:
                 # Gemma2/BgGPT: no system role; user-only instruction
                 if hasattr(tok, "apply_chat_template"):
-                    msgs = [
-                        {"role": "user",
-                        "content": f"Translate to Bulgarian. Output ONLY the translation.\n{text}"}
+                    messages = [
+                        {"role": "user", "content": f"Преведи следния английски текст на български. Извеждай превода само по веднъж и го изведи без кавички, обяснения и т.н., и спри след като си го извел. {text}"},
                     ]
-                    try:
-                        return tok.apply_chat_template(
-                            msgs, tokenize=False, add_generation_prompt=True
-                        )
-                    except Exception:
-                        pass
-                return f"Translate to Bulgarian. Output ONLY the translation.\n{text}"
-            if hasattr(tok, "apply_chat_template"):
+                    return tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            if hasattr(tok, "apply_chat_template") and not is_bggpt:
                 messages = [
                     {"role": "system", "content": "You are a professional technical translator. Translate English to Bulgarian. Output ONLY the translation."},
                     {"role": "user", "content": text},
