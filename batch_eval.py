@@ -526,7 +526,7 @@ def translate_batch(model_id, fam, tok, model, lines, device=None, batch_size=16
                 # Gemma2/BgGPT: no system role; user-only instruction
                 if hasattr(tok, "apply_chat_template"):
                     messages = [
-                        {"role": "user", "content": f"Преведи следния английски текст на български. Извеждай превода само по веднъж и го изведи без кавички, обяснения и т.н., и спри след като си го извел. {text}"},
+                        {"role": "user", "content": f"You are not a chatbot. You are a translation API. Task: translate from English to Bulgarian (bg-BG, Cyrillic). Output only the Bulgarian translation, starting immediately. No explanations, notes, or extra punctuation. Only Bulgarian text, digits, and punctuation from the input are allowed. English: {text} Bulgarian: "},
                     ]
                     return tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             if hasattr(tok, "apply_chat_template") and not is_bggpt:
