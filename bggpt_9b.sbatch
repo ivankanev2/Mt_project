@@ -21,13 +21,13 @@ USER_SITE="$(python3 -m site --user-site)"
 export PYTHONPATH="${USER_SITE}:${PYTHONPATH-}"
 # Sanity checks
 hostname
-test -f data/english_ref_4.docx
-test -f data/bulgarian_ref_4.docx
+test -f data/BGP-GW-GL-203_Revision_A_eng.docx
+test -f data/BGP-GW-GL-203_Revision_A_bg.docx
 
 # Run
 python3 batch_eval.py \
-  --src data/english_ref_4.docx \
-  --ref data/bulgarian_ref_4.docx \
+  --src data/BGP-GW-GL-203_Revision_A_eng.docx \
+  --ref data/BGP-GW-GL-203_Revision_A_bg.docx \
   --models "INSAIT-Institute/BgGPT-Gemma-2-9B-IT-v1.0" \
   --outdir results_bggpt_9b --clean_outdir \
   --no_glossary --no_bg_normalize \
