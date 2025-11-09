@@ -8,6 +8,25 @@ import torch
 from tqdm import tqdm
 
 
+def pick_device():
+    """
+    Prefer CUDA when available, then Apple Silicon's Metal backend (MPS),
+    and fall back to CPU otherwise.
+    """
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+def device_name(device):
+    """Return a string identifier ('cuda', 'mps', 'cpu', …) for the given torch.device."""
+    if isinstance(device, torch.device):
+        return device.type
+    return str(device)
+
+
 # for progress bars
 def pbar(it, **kwargs):
     """Show a tqdm bar only if the session looks interactive."""
@@ -361,7 +380,8 @@ def windowed_embed_align(src_chunk, ref_chunk, win=6, thr=0.5, model_name="sente
     ref = normalize_lines(ref_chunk)
     if not src or not ref:
         return []
-    st = SentenceTransformer(model_name)
+    st_device = pick_device()
+    st = SentenceTransformer(model_name, device=device_name(st_device))
     e_src = st.encode(src, convert_to_numpy=True, normalize_embeddings=True)
     e_ref = st.encode(ref, convert_to_numpy=True, normalize_embeddings=True)
     aligned = []
@@ -417,47 +437,47 @@ def detect_family(model_id):
 def translator_for(model_id, device=None, lora_adapter=None):
     from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
     fam = detect_family(model_id)
+
+    def maybe_load_lora(model):
+        if lora_adapter:
+            from peft import PeftModel
+            model = PeftModel.from_pretrained(model, lora_adapter)
+        return model
+
     if fam == "m2m":
         from transformers import M2M100Tokenizer, M2M100ForConditionalGeneration
         tok = M2M100Tokenizer.from_pretrained(model_id)
         model = M2M100ForConditionalGeneration.from_pretrained(model_id)
+        model = maybe_load_lora(model)
         return ("m2m", tok, model, device)
     elif fam == "nllb":
         tok = AutoTokenizer.from_pretrained(model_id)
         model = AutoModelForSeq2SeqLM.from_pretrained(model_id)
+        model = maybe_load_lora(model)
         return ("nllb", tok, model, device)
     elif fam == "causal_llm":
         tok = AutoTokenizer.from_pretrained(model_id, padding_side="left")
         if tok.pad_token_id is None and tok.eos_token_id is not None:
             tok.pad_token_id = tok.eos_token_id
 
-        device = None
+        device = pick_device()
         model = None
-        try:
-            # 4-bit if available
-            from transformers import BitsAndBytesConfig
-            bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
-            model = AutoModelForCausalLM.from_pretrained(
-                model_id,
-                device_map="auto",                 # accelerate handles placement
-                quantization_config=bnb,
-            )
-            # when using device_map="auto", pick a device just for tensors:
-            if torch.cuda.is_available():
-                device = torch.device("cuda")
-            elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
-                device = torch.device("mps")
-            else:
-                device = torch.device("cpu")
-        except Exception:
-            # Fallback: no 4-bit, place model on a single device
-            if torch.cuda.is_available():
-                device = torch.device("cuda")
-            elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
-                device = torch.device("mps")
-            else:
-                device = torch.device("cpu")
-            model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto").to(device)
+        if torch.cuda.is_available():
+            try:
+                # 4-bit if available (CUDA-only)
+                from transformers import BitsAndBytesConfig
+                bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
+                model = AutoModelForCausalLM.from_pretrained(
+                    model_id,
+                    device_map="auto",                 # accelerate handles placement
+                    quantization_config=bnb,
+                )
+            except Exception:
+                model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto").to(device)
+        else:
+            # Apple Silicon / CPU path (no bitsandbytes)
+            dtype = torch.float16 if isinstance(device, torch.device) and device.type == "mps" else "auto"
+            model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=dtype).to(device)
 
         if lora_adapter:
             from peft import PeftModel
@@ -471,12 +491,15 @@ def translator_for(model_id, device=None, lora_adapter=None):
     else:  # marian default
         tok = AutoTokenizer.from_pretrained(model_id)
         model = AutoModelForSeq2SeqLM.from_pretrained(model_id)
+        model = maybe_load_lora(model)
         return ("marian", tok, model, device)
 
 def translate_batch(model_id, fam, tok, model, lines, device=None, batch_size=16):
     import torch
     if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = pick_device()
+    if isinstance(device, str):
+        device = torch.device(device)
     model = model.to(device)
     out = []
 
@@ -613,7 +636,7 @@ def dp_align(sys_lines, ref_lines, sim_thr=0.50, model_name="sentence-transforme
     if not a or not b:
         return []
 
-    st = SentenceTransformer(model_name)
+    st = SentenceTransformer(model_name, device=device_name(pick_device()))
     Ea = st.encode(a, normalize_embeddings=True)
     Eb = st.encode(b, normalize_embeddings=True)
     S = Ea @ Eb.T  # cosine similarity matrix: shape [len(a), len(b)]
